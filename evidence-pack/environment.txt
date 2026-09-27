@@ -1,0 +1,2 @@
+Python 3.13.0
+OS: Linux (Udacity cloud workspace, code-server)
