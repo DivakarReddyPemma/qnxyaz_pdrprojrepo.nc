@@ -1,0 +1,137 @@
+============================= test session starts ==============================
+platform linux -- Python 3.13.0, pytest-9.1.1, pluggy-1.6.0 -- /workspace/Build a Validated, Routed Insurance Policy Extraction Pipeline/04-hitl-routing/solution/.venv/bin/python3.13
+cachedir: .pytest_cache
+rootdir: /workspace/Build a Validated, Routed Insurance Policy Extraction Pipeline/04-hitl-routing/solution
+configfile: pyproject.toml
+plugins: asyncio-1.4.0, anyio-4.15.1
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 9 items
+
+tests/test_us04_routing.py::test_ac_04_02_all_clear_routes_to_auto_approve FAILED [ 11%]
+tests/test_us04_routing.py::test_ac_04_02_low_confidence_routes_to_human_review FAILED [ 22%]
+tests/test_us04_routing.py::test_ac_04_02_integration_failure_routes_to_human_review PASSED [ 33%]
+tests/test_us04_routing.py::test_ac_04_06_high_confidence_plus_reviewer_disagreement_still_routes_to_human_review PASSED [ 44%]
+tests/test_us04_routing.py::test_ac_04_03_stratified_sampler_picks_from_every_stratum_with_eligible_records FAILED [ 55%]
+tests/test_us04_routing.py::test_ac_04_03_only_auto_approve_decisions_are_eligible_for_spot_check PASSED [ 66%]
+tests/test_us04_routing.py::test_ac_04_04_calibration_report_is_sliced_by_policy_type_and_field PASSED [ 77%]
+tests/test_us04_routing.py::test_ac_04_04_calibration_report_handles_empty_input PASSED [ 88%]
+tests/test_us04_routing.py::test_ac_04_05_routing_decisions_written_to_json_file FAILED [100%]
+
+=================================== FAILURES ===================================
+________________ test_ac_04_02_all_clear_routes_to_auto_approve ________________
+
+    def test_ac_04_02_all_clear_routes_to_auto_approve() -> None:
+        decision = route_extraction(
+            extraction=_ext(),
+            review=_review(_all_agree()),
+            integration_findings=_integration_pass_all(),
+        )
+>       assert decision.decision == "auto_approve"
+E       AssertionError: assert 'human_review' == 'auto_approve'
+E         
+E         - auto_approve
+E         + human_review
+
+tests/test_us04_routing.py:106: AssertionError
+_____________ test_ac_04_02_low_confidence_routes_to_human_review ______________
+
+    def test_ac_04_02_low_confidence_routes_to_human_review() -> None:
+        decision = route_extraction(
+            extraction=_ext(confidence={
+                "policy_type": 0.95, "premium_amount": 0.65, "deductible": 0.95,
+                "coverage_limit": 0.95, "endorsements": 0.95, "exclusions": 0.95,
+            }),
+            review=_review(_all_agree()),
+            integration_findings=_integration_pass_all(),
+        )
+        assert decision.decision == "human_review"
+>       assert decision.fields_below_threshold == ["premium_amount"]
+E       AssertionError: assert ['coverage_li...emium_amount'] == ['premium_amount']
+E         
+E         At index 0 diff: 'coverage_limit' != 'premium_amount'
+E         Left contains 5 more items, first extra item: 'deductible'
+E         
+E         Full diff:
+E           [
+E         +     'coverage_limit',...
+E         
+E         ...Full output truncated (6 lines hidden), use '-vv' to show
+
+tests/test_us04_routing.py:122: AssertionError
+_ test_ac_04_03_stratified_sampler_picks_from_every_stratum_with_eligible_records _
+
+    def test_ac_04_03_stratified_sampler_picks_from_every_stratum_with_eligible_records() -> None:
+        """No stratum that has eligible records is silently dropped."""
+        decisions = [
+            route_extraction(
+                extraction=_ext(policy_id=f"AUTO-{i}", policy_type="auto"),
+                review=_review(_all_agree()),
+                integration_findings=_integration_pass_all(),
+            )
+            for i in range(10)
+        ] + [
+            route_extraction(
+                extraction=_ext(policy_id=f"HOME-{i}", policy_type="home"),
+                review=_review(_all_agree()),
+                integration_findings=_integration_pass_all(),
+            )
+            for i in range(10)
+        ] + [
+            route_extraction(
+                extraction=_ext(policy_id=f"UMB-{i}", policy_type="umbrella"),
+                review=_review(_all_agree()),
+                integration_findings=_integration_pass_all(),
+            )
+            for i in range(2)
+        ]
+        promoted = apply_stratified_spot_check(decisions, sample_pct=0.2, seed=42)
+        auto_promoted = [d for d in promoted if d.decision == "spot_check" and "AUTO-" in d.policy_id]
+        home_promoted = [d for d in promoted if d.decision == "spot_check" and "HOME-" in d.policy_id]
+        umb_promoted = [d for d in promoted if d.decision == "spot_check" and "UMB-" in d.policy_id]
+        # 20% of 10 -> 2 each for auto and home
+>       assert len(auto_promoted) >= 1
+E       assert 0 >= 1
+E        +  where 0 = len([])
+
+tests/test_us04_routing.py:206: AssertionError
+_____________ test_ac_04_05_routing_decisions_written_to_json_file _____________
+
+tmp_path = PosixPath('/tmp/pytest-of-student/pytest-0/test_ac_04_05_routing_decision0')
+
+    def test_ac_04_05_routing_decisions_written_to_json_file(tmp_path: Path) -> None:
+        decisions = [
+            route_extraction(
+                extraction=_ext(policy_id="POL-A", policy_type="auto"),
+                review=_review(_all_agree()),
+                integration_findings=_integration_pass_all(),
+            ),
+            route_extraction(
+                extraction=_ext(
+                    policy_id="POL-B", policy_type="home",
+                    confidence={
+                        "policy_type": 0.95, "premium_amount": 0.5, "deductible": 0.95,
+                        "coverage_limit": 0.95, "endorsements": 0.95, "exclusions": 0.95,
+                    },
+                ),
+                review=_review(_all_agree()),
+                integration_findings=_integration_pass_all(),
+            ),
+        ]
+        path = tmp_path / "routing.json"
+        write_routing_decisions(decisions, path)
+        parsed: list[dict[str, Any]] = json.loads(path.read_text())
+        assert len(parsed) == 2
+        record_a = next(r for r in parsed if r["policy_id"] == "POL-A")
+>       assert record_a["decision"] == "auto_approve"
+E       AssertionError: assert 'human_review' == 'auto_approve'
+E         
+E         - auto_approve
+E         + human_review
+
+tests/test_us04_routing.py:315: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_us04_routing.py::test_ac_04_02_all_clear_routes_to_auto_approve
+FAILED tests/test_us04_routing.py::test_ac_04_02_low_confidence_routes_to_human_review
+FAILED tests/test_us04_routing.py::test_ac_04_03_stratified_sampler_picks_from_every_stratum_with_eligible_records
+FAILED tests/test_us04_routing.py::test_ac_04_05_routing_decisions_written_to_json_file
+========================= 4 failed, 5 passed in 0.51s ==========================
