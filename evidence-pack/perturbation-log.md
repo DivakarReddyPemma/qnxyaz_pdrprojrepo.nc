@@ -8,35 +8,36 @@ own experiment earns more credit).
 
 ### System 1 — validated, routed pipeline
 
-- **Change I made (file + what I changed):** No file changed — ran the 
-  offline routing test suite (`tests/test_us04_routing.py`) since I had 
-  no live API key, per the project's offline fallback instructions.
+- **Change I made (file + what I changed):** Edited `policy_extractor/routing.py` line 21, 
+  raising `DEFAULT_CONFIDENCE_THRESHOLD` from `0.90` to `0.99`.
 - **Command I ran:** `.venv/bin/pytest tests/test_us04_routing.py -v`
-- **What I predicted:** Records with low confidence or an integration 
-  failure would be routed to human review rather than auto-approved.
-- **What actually happened (paste the key output):** All 9 tests passed, 
-  including `test_ac_04_02_low_confidence_routes_to_human_review PASSED` 
-  and `test_ac_04_02_integration_failure_routes_to_human_review PASSED`.
-- **How this differs from the unperturbed run:** The full pipeline run 
-  (45 tests) confirms the same safe defaults; this test isolates and 
-  proves the specific human-review escalation logic on its own.
+- **What I predicted:** Records with confidence between 0.90 and 0.99 that previously cleared 
+  the bar for auto-approval would now fail to clear it and route to human review instead.
+- **What actually happened (paste the key output):** 4 tests failed, 5 passed (baseline was 
+  9 passed, 0 failed). `test_ac_04_02_all_clear_routes_to_auto_approve` failed with 
+  `AssertionError: assert 'human_review' == 'auto_approve'` — a record that used to auto-approve 
+  now routes to human review because its confidence score no longer clears the stricter threshold.
+- **How this differs from the unperturbed run:** At the original threshold (0.90), this same 
+  test suite passes 9/9 (routing-test-output.txt). Raising the threshold shows the router is 
+  sensitive to this exact setting, and that a stricter bar pushes more records toward human 
+  review rather than silently approving them.
 
 ---
 
 ### System 2 — schema-enforced two-pass extraction
 
-- **Change I made (file + what I changed):** Used the provided fixture 
-  `income_sum_mismatch.txt`, which has a stated total that doesn't match 
-  the sum of its line items.
+- **Change I made (file + what I changed):** Edited `mortgage_extractor/config.py` line 10, 
+  raising `DEFAULT_TOLERANCE_USD` from `1.00` to `2000.00`.
 - **Command I ran:** `.venv/bin/mortgage-extract fixtures/documents/income_sum_mismatch.txt --mode replay`
-- **What I predicted:** The system would flag the mismatch rather than 
-  trust the stated total.
-- **What actually happened (paste the key output):** 
-  `"consistent": false`, `"calculated": 9642.17`, `"stated": 10892.17`, 
-  `"delta": -1250.0`.
-- **How this differs from the unperturbed run:** Running 
-  `appraisal_informal_sqft.txt` (a clean document) instead produces no 
-  discrepancy entry and `"consistent": true`.
+- **What I predicted:** With the tolerance raised above the document's actual discrepancy 
+  (1250.0), the same mismatched document would now pass validation instead of being flagged.
+- **What actually happened (paste the key output):** `"consistent": true, "discrepancies": []`. 
+  Before the change, the same document produced `"consistent": false`, `"calculated": 9642.17`, 
+  `"stated": 10892.17`, `"delta": -1250.0` (see extract-income-mismatch.txt).
+- **How this differs from the unperturbed run:** At the original tolerance (1.00), any 
+  discrepancy above one dollar is flagged. Raising the tolerance to 2000 makes the validator 
+  blind to a real $1,250 error — showing the tolerance setting directly controls how much 
+  arithmetic disagreement the system will silently accept.
 
 ---
 
